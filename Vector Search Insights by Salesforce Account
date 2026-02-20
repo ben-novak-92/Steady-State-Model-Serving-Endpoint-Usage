@@ -1,0 +1,21 @@
+SELECT
+ sales_region as bu,
+ subregion_level_1 as bu_plus_one,
+ subregion_level_2 as bu_plus_two,
+ ws.salesforce_account_name,
+ ws.workspace_name,
+ bu.billing_origin_product,
+ bu.usage_type,
+ coalesce(usage_metadata.endpoint_name, usage_metadata.private_endpoint_name, usage_metadata.endpoint_id) as endpoint,
+ bu.usage_date,
+ sum(usage_quantity) as usage_quantity
+FROM main.centralized_system_tables.billing_usage bu
+LEFT JOIN main.certified.workspaces_latest AS ws
+  ON bu.workspace_id = ws.workspace_id
+LEFT JOIN main.gtm_data.core_accounts_curated cac
+  ON ws.salesforce_account_id = cac.account_id
+WHERE usage_date BETWEEN dateadd(DAY,-365,current_date()) AND current_date()
+AND billing_origin_product in ('VECTOR_SEARCH')
+and usage_unit = 'DBU'
+GROUP BY 1,2,3,4,5,6,7,8,9
+ORDER BY coalesce(usage_metadata.endpoint_name, usage_metadata.private_endpoint_name, usage_metadata.endpoint_id) desc, usage_date desc
