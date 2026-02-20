@@ -1,0 +1,67 @@
+with usage_weekly as
+  (
+  SELECT
+    sales_region as bu,
+    subregion_level_1 as bu_plus_one,
+    subregion_level_2 as bu_plus_two,
+    usage.salesforce_account_name,
+    usage.workspaceId,
+    ws.workspace_name,
+    date_trunc('week', date) as week_start_date,
+    sum(dollars) as dollars,
+    sum(net_usage_amount) as usage
+  FROM main.eng_mce_cloud_cost.model_serving_usage usage
+LEFT JOIN main.certified.workspaces_latest AS ws
+  ON usage.workspaceid = ws.workspace_id
+LEFT JOIN main.gtm_data.core_accounts_curated cac
+  ON ws.salesforce_account_id = cac.account_id
+WHERE date between date_add(day,-90,getdate()) and getdate()
+  and model_serving_type != 'VECTOR_SEARCH'
+  and net_usage_amount > 0
+  and dollars > 0
+  and usage.salesforce_account_name is not null
+  group by all
+  order by 1,2,3,4,5,6
+  ),
+usage_weekly_lag as
+  (
+  select
+    *,
+    lag(usage,1) over (partition by salesforce_account_name, workspaceId order by week_start_date) as usage_lag_1,
+    lag(usage,2) over (partition by salesforce_account_name, workspaceId order by week_start_date) as usage_lag_2,
+    lag(usage,3) over (partition by salesforce_account_name, workspaceId order by week_start_date) as usage_lag_3
+  from usage_weekly
+  ),
+four_week_trend as 
+(
+select
+  bu,
+  bu_plus_one,
+  bu_plus_two,
+  salesforce_account_name,
+  workspaceId,
+  workspace_name,
+  week_start_date,
+  dollars as weekly_spend,
+  dollars*16 as quarterly_spend,
+  dollars*52 as annual_spend,
+  case when round(usage) = round(usage_lag_1) and round(usage_lag_1) = round(usage_lag_2) and round(usage_lag_2) = round(usage_lag_3) then '4 weeks of identical usage' end as review
+from usage_weekly_lag
+)
+
+select
+  bu,
+  bu_plus_one,
+  bu_plus_two,
+  salesforce_account_name,
+  workspaceid,
+  workspace_name,
+  max(week_start_date) as most_recent_week,
+  weekly_spend,
+  quarterly_spend,
+  annual_spend,
+  review
+from four_week_trend
+where review is not null
+group by all
+order by most_recent_week desc
